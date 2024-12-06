@@ -20,16 +20,16 @@ mod windows;
 use audio::AppSounds;
 use auth::{AuthStore, AuthenticationInvalid};
 use cap_editor::EditorState;
-use cap_editor::{EditorInstance, ProjectRecordings, FRAMES_WS_PATH};
+use cap_editor::{EditorInstance, FRAMES_WS_PATH};
 use cap_media::feeds::{AudioInputFeed, AudioInputSamplesSender};
 use cap_media::sources::CaptureScreen;
 use cap_media::{
     feeds::{CameraFeed, CameraFrameSender},
     sources::ScreenCaptureTarget,
 };
-use cap_project::{ProjectConfiguration, RecordingMeta, SharingMeta};
+use cap_project::{Content, ProjectConfiguration, RecordingMeta, SharingMeta};
 use cap_recording::RecordingOptions;
-use fake_window::FakeWindowBounds;
+use cap_rendering::ProjectRecordings;
 // use display::{list_capture_windows, Bounds, CaptureTarget, FPS};
 use general_settings::GeneralSettingsStore;
 use mp4::Mp4Reader;
@@ -40,13 +40,17 @@ use scap::frame::Frame;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use specta::Type;
-use std::fs::File;
-use std::future::Future;
-use std::io::BufWriter;
-use std::str::FromStr;
 use std::{
-    collections::HashMap, io::BufReader, marker::PhantomData, path::PathBuf, process::Command,
+    collections::HashMap,
+    fs::File,
+    future::Future,
+    io::{BufReader, BufWriter},
+    marker::PhantomData,
+    path::PathBuf,
+    process::Command,
+    str::FromStr,
     sync::Arc,
+    time::Duration,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
@@ -128,10 +132,12 @@ impl App {
         }
     }
 
-    async fn set_start_recording_options(&mut self, new_options: RecordingOptions) {
+    async fn set_start_recording_options(
+        &mut self,
+        new_options: RecordingOptions,
+    ) -> Result<(), String> {
         let options = new_options.clone();
         sentry::configure_scope(move |scope| {
-            scope.set_tag("cmd", "set_start_recording_options");
             let mut ctx = std::collections::BTreeMap::new();
             ctx.insert(
                 "capture_target".into(),
@@ -176,15 +182,15 @@ impl App {
                         .await
                         .switch_cameras(camera_label)
                         .await
-                        .map_err(|error| eprintln!("{error}"))
-                        .ok();
+                        .map_err(|e| e.to_string())?;
                 } else {
-                    self.camera_feed = CameraFeed::init(camera_label, self.camera_tx.clone())
-                        .await
-                        .map(Mutex::new)
-                        .map(Arc::new)
-                        .map_err(|error| eprintln!("{error}"))
-                        .ok();
+                    self.camera_feed = Some(
+                        CameraFeed::init(camera_label, self.camera_tx.clone())
+                            .await
+                            .map(Mutex::new)
+                            .map(Arc::new)
+                            .map_err(|e| e.to_string())?,
+                    );
                 }
             }
             None => {
@@ -192,36 +198,132 @@ impl App {
             }
         }
 
-        match new_options.audio_input_name() {
-            Some(audio_input_name) => {
-                if let Some(audio_input_feed) = self.audio_input_feed.as_mut() {
-                    audio_input_feed
-                        .switch_input(audio_input_name)
+        self.audio_input_feed = match new_options.audio_input_name() {
+            Some(audio_input_name) => Some(match self.audio_input_feed.take() {
+                Some(mut feed) => {
+                    feed.switch_input(audio_input_name)
                         .await
-                        .map_err(|error| eprintln!("{error}"))
-                        .ok();
-                } else {
-                    self.audio_input_feed = if let Ok(feed) = AudioInputFeed::init(audio_input_name)
-                        .await
-                        .map_err(|error| eprintln!("{error}"))
-                    {
-                        feed.add_sender(self.audio_input_tx.clone()).await.unwrap();
-                        Some(feed)
-                    } else {
-                        None
-                    };
+                        .map_err(|e| e.to_string())?;
+
+                    feed
                 }
-            }
-            None => {
-                self.audio_input_feed = None;
-            }
-        }
+                None => {
+                    let feed = AudioInputFeed::init(audio_input_name)
+                        .await
+                        .map_err(|e| e.to_string())?;
+
+                    feed.add_sender(self.audio_input_tx.clone()).await.unwrap();
+
+                    feed
+                }
+            }),
+            None => None,
+        };
 
         self.start_recording_options = new_options;
 
         RecordingOptionsChanged.emit(&self.handle).ok();
+
+        Ok(())
     }
 }
+
+// #[tauri::command]
+// #[specta::specta]
+// async fn set_camera_input(
+//     app: AppHandle,
+//     state: MutableState<'_, App>,
+//     name: Option<String>,
+// ) -> Result<(), String> {
+//     let mut state = state.write().await;
+
+//     match CapWindowId::Camera.get(&app) {
+//         Some(window) if name.is_none() => {
+//             println!("closing camera window");
+//             window.close().ok();
+//         }
+//         None if name.is_some() => {
+//             println!("creating camera window");
+//             ShowCapWindow::Camera {
+//                 ws_port: state.camera_ws_port,
+//             }
+//             .show(&app)
+//             .ok();
+//         }
+//         _ => {}
+//     }
+
+//     match &name {
+//         Some(camera_label) => {
+//             if let Some(camera_feed) = state.camera_feed.as_ref() {
+//                 camera_feed
+//                     .lock()
+//                     .await
+//                     .switch_cameras(camera_label)
+//                     .await
+//                     .map_err(|error| eprintln!("{error}"))
+//                     .ok();
+//             } else {
+//                 state.camera_feed = CameraFeed::init(camera_label, state.camera_tx.clone())
+//                     .await
+//                     .map(Mutex::new)
+//                     .map(Arc::new)
+//                     .map_err(|error| eprintln!("{error}"))
+//                     .ok();
+//             }
+//         }
+//         None => {
+//             state.camera_feed = None;
+//         }
+//     }
+
+//     state.start_recording_options.camera_label = name;
+
+//     RecordingOptionsChanged.emit(&app).ok();
+
+//     Ok(())
+// }
+
+// #[tauri::command]
+// #[specta::specta]
+// async fn set_mic_input(
+//     app: AppHandle,
+//     state: MutableState<'_, App>,
+//     name: Option<String>,
+// ) -> Result<(), String> {
+//     let mut state = state.write().await;
+
+//     match &name {
+//         Some(audio_input_name) => {
+//             if let Some(audio_input_feed) = state.audio_input_feed.as_mut() {
+//                 audio_input_feed
+//                     .switch_input(audio_input_name)
+//                     .await
+//                     .map_err(|error| eprintln!("{error}"))
+//                     .ok();
+//             } else {
+//                 state.audio_input_feed = if let Ok(feed) = AudioInputFeed::init(audio_input_name)
+//                     .await
+//                     .map_err(|error| eprintln!("{error}"))
+//                 {
+//                     feed.add_sender(state.audio_input_tx.clone()).await.unwrap();
+//                     Some(feed)
+//                 } else {
+//                     None
+//                 };
+//             }
+//         }
+//         None => {
+//             state.audio_input_feed = None;
+//         }
+//     }
+
+//     state.start_recording_options.audio_input_name = name;
+
+//     RecordingOptionsChanged.emit(&app).ok();
+
+//     Ok(())
+// }
 
 #[derive(specta::Type, Serialize, tauri_specta::Event, Clone)]
 pub struct RecordingOptionsChanged;
@@ -298,12 +400,12 @@ async fn get_recording_options(state: MutableState<'_, App>) -> Result<Recording
 async fn set_recording_options(
     state: MutableState<'_, App>,
     options: RecordingOptions,
-) -> Result<(), ()> {
+) -> Result<(), String> {
     state
         .write()
         .await
         .set_start_recording_options(options)
-        .await;
+        .await?;
 
     Ok(())
 }
@@ -569,10 +671,6 @@ async fn copy_file_to_path(app: AppHandle, src: String, dst: String) -> Result<(
 #[tauri::command]
 #[specta::specta]
 async fn copy_screenshot_to_clipboard(app: AppHandle, path: PathBuf) -> Result<(), String> {
-    sentry::configure_scope(|scope| {
-        scope.set_tag("cmd", "copy_screenshot_to_clipboard");
-    });
-
     println!("Copying screenshot to clipboard: {:?}", path);
 
     let image_data = match tokio::fs::read(&path).await {
@@ -824,100 +922,95 @@ async fn copy_video_to_clipboard(app: AppHandle, path: String) -> Result<(), Str
     Ok(())
 }
 
+#[derive(Serialize, Deserialize, specta::Type)]
+pub struct VideoRecordingMetadata {
+    duration: f64,
+    size: f64,
+}
+
 #[tauri::command]
 #[specta::specta]
 async fn get_video_metadata(
     app: AppHandle,
     video_id: String,
     video_type: Option<VideoType>,
-) -> Result<(f64, f64), String> {
+) -> Result<VideoRecordingMetadata, String> {
     let video_id = if video_id.ends_with(".cap") {
         video_id.trim_end_matches(".cap").to_string()
     } else {
         video_id
     };
 
-    let video_dir = app
+    let project_path = app
         .path()
         .app_data_dir()
         .unwrap()
         .join("recordings")
         .join(format!("{}.cap", video_id));
 
-    let screen_video_path = video_dir.join("content").join("display.mp4");
-    let output_video_path = video_dir.join("output").join("result.mp4");
+    let meta = RecordingMeta::load_for_project(&project_path)?;
 
-    println!("video_dir: {:?} \n video_id: {:?}", video_dir, video_id);
-
-    let video_path = match video_type {
-        Some(VideoType::Screen) => {
-            println!("Using screen video path: {:?}", screen_video_path);
-            if !screen_video_path.exists() {
-                return Err(format!(
-                    "Screen video does not exist: {:?}",
-                    screen_video_path
-                ));
+    fn content_paths(project_path: &PathBuf, meta: &RecordingMeta) -> Vec<PathBuf> {
+        match &meta.content {
+            Content::SingleSegment { segment } => {
+                vec![segment.path(&meta, &segment.display.path)]
             }
-            screen_video_path
+            Content::MultipleSegments { inner } => inner
+                .segments
+                .iter()
+                .map(|s| inner.path(&meta, &s.display.path))
+                .collect(),
         }
+    }
+
+    let paths = match video_type {
+        Some(VideoType::Screen) => content_paths(&project_path, &meta),
         Some(VideoType::Output) | None => {
+            let output_video_path = project_path.join("output").join("result.mp4");
             println!("Using output video path: {:?}", output_video_path);
             if output_video_path.exists() {
-                output_video_path
+                vec![output_video_path]
             } else {
-                println!(
-                    "Output video not found, falling back to screen video path: {:?}",
-                    screen_video_path
-                );
-                if !screen_video_path.exists() {
-                    return Err(format!(
-                        "Screen video does not exist: {:?}",
-                        screen_video_path
-                    ));
-                }
-                screen_video_path
+                println!("Output video not found, falling back to screen paths");
+                content_paths(&project_path, &meta)
             }
         }
     };
 
-    let file = File::open(&video_path).map_err(|e| {
-        println!("Failed to open video file: {}", e);
-        format!("Failed to open video file: {}", e)
-    })?;
-
-    let size = (file
-        .metadata()
-        .map_err(|e| {
-            println!("Failed to get file metadata: {}", e);
-            format!("Failed to get file metadata: {}", e)
-        })?
-        .len() as f64)
-        / (1024.0 * 1024.0);
-
-    println!("File size: {} MB", size);
-
-    let reader = BufReader::new(file);
-    let file_size = video_path
-        .metadata()
-        .map_err(|e| {
-            println!("Failed to get file metadata: {}", e);
-            format!("Failed to get file metadata: {}", e)
-        })?
-        .len();
-
-    let duration = match Mp4Reader::read_header(reader, file_size) {
-        Ok(mp4) => mp4.duration().as_secs_f64(),
-        Err(e) => {
-            println!(
-                "Failed to read MP4 header: {}. Falling back to default duration.",
-                e
-            );
-            // Return a default duration (e.g., 0.0) or try to estimate it based on file size
-            0.0 // or some estimated value
-        }
+    let mut ret = VideoRecordingMetadata {
+        size: 0.0,
+        duration: 0.0,
     };
 
-    Ok((duration, size))
+    for path in paths {
+        let file = File::open(&path).map_err(|e| format!("Failed to open video file: {}", e))?;
+
+        ret.size += (file
+            .metadata()
+            .map_err(|e| format!("Failed to get file metadata: {}", e))?
+            .len() as f64)
+            / (1024.0 * 1024.0);
+
+        let reader = BufReader::new(file);
+        let file_size = path
+            .metadata()
+            .map_err(|e| format!("Failed to get file metadata: {}", e))?
+            .len();
+
+        ret.duration += match Mp4Reader::read_header(reader, file_size) {
+            Ok(mp4) => mp4.duration().as_secs_f64(),
+            Err(e) => {
+                println!(
+                    "Failed to read MP4 header: {}. Falling back to default duration.",
+                    e
+                );
+                // Return a default duration (e.g., 0.0) or try to estimate it based on file size
+                0.0 // or some estimated value
+            }
+        };
+    }
+
+    Ok(ret)
 }
 
 #[tauri::command(async)]
@@ -925,7 +1018,7 @@ async fn get_video_metadata(
 fn open_editor(app: AppHandle, id: String) {
     println!("Opening editor for recording: {}", id);
 
-    if let Some(window) = app.get_webview_window("camera") {
+    if let Some(window) = CapWindowId::Camera.get(&app) {
         window.close().ok();
     }
 
@@ -1860,7 +1953,17 @@ pub async fn run() {
                 .build(),
         )
         .plugin(flags::plugin::init())
-        .invoke_handler(specta_builder.invoke_handler())
+        .invoke_handler({
+            let handler = specta_builder.invoke_handler();
+
+            move |invoke| {
+                sentry::configure_scope(|scope| {
+                    scope.set_tag("cmd", invoke.message.command());
+                });
+
+                handler(invoke)
+            }
+        })
         .setup(move |app| {
             let app = app.handle().clone();
             specta_builder.mount_events(&app);

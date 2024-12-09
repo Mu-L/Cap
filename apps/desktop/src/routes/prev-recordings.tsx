@@ -24,7 +24,6 @@ import { TransitionGroup } from "solid-transition-group";
 import { makePersisted } from "@solid-primitives/storage";
 import { Channel } from "@tauri-apps/api/core";
 import { createStore, produce } from "solid-js/store";
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
 import {
   commands,
@@ -35,6 +34,7 @@ import {
 import { DEFAULT_PROJECT_CONFIG } from "./editor/projectConfig";
 import { createPresets } from "~/utils/createPresets";
 import { progressState, setProgressState } from "~/store/progress";
+import { checkIsUpgradedAndUpdate } from "~/utils/plans";
 
 type MediaEntry = {
   path: string;
@@ -141,7 +141,7 @@ export default function () {
         "scrollbar-color": "auto transparent",
       }}
     >
-      <div class="w-full relative left-0 bottom-0 flex flex-col-reverse pl-[40px] pb-[80px] gap-4 h-full overflow-y-auto">
+      <div class="w-full relative left-0 bottom-0 flex flex-col-reverse pl-[40px] pb-[80px] gap-4 h-full overflow-y-auto scrollbar-none">
         <div class="pt-12 w-full flex flex-col gap-4">
           <TransitionGroup
             enterToClass="translate-y-0"
@@ -176,7 +176,7 @@ export default function () {
                     });
                   if (!result) return;
 
-                  const [duration, size] = result;
+                  const { duration, size } = result;
                   console.log(
                     `Metadata for ${media.path}: duration=${duration}, size=${size}`
                   );
@@ -219,7 +219,7 @@ export default function () {
                     >
                       <div
                         class={cx(
-                          "w-full h-full flex relative bg-transparent rounded-[8px] border-[1px] overflow-hidden z-10",
+                          "w-full h-full flex relative bg-transparent rounded-[8px] border-[1px] z-10 overflow-hidden",
                           "transition-all",
                           isLoading() && "backdrop-blur bg-gray-500/80"
                         )}
@@ -235,7 +235,7 @@ export default function () {
                           }
                         >
                           <img
-                            class="pointer-events-none w-full h-full object-cover absolute inset-0 -z-10 rounded-[6px]"
+                            class="pointer-events-none w-full h-full object-cover absolute inset-0 -z-10 rounded-[7.4px]"
                             alt="media preview"
                             src={`${convertFileSrc(
                               isRecording
@@ -321,30 +321,39 @@ export default function () {
                                       )
                                         return 0;
 
-                                      if (progressState.type === "uploading") {
-                                        return progressState.stage ===
-                                          "rendering"
-                                          ? Math.min(
-                                              progressState.renderProgress || 0,
-                                              100
-                                            )
-                                          : Math.min(
-                                              progressState.uploadProgress || 0,
-                                              100
-                                            );
-                                      }
-
-                                      if (progressState.stage === "rendering") {
+                                      // For rendering progress
+                                      if (
+                                        progressState.stage === "rendering" &&
+                                        progressState.renderProgress !==
+                                          undefined &&
+                                        progressState.totalFrames
+                                      ) {
                                         return Math.min(
-                                          ((progressState.renderProgress || 0) /
-                                            (progressState.totalFrames || 1)) *
-                                            100,
+                                          Math.round(
+                                            (progressState.renderProgress /
+                                              progressState.totalFrames) *
+                                              100
+                                          ),
                                           100
                                         );
                                       }
 
+                                      // For upload progress
+                                      if (
+                                        progressState.type === "uploading" &&
+                                        progressState.stage === "uploading"
+                                      ) {
+                                        return Math.min(
+                                          progressState.uploadProgress * 100,
+                                          100
+                                        );
+                                      }
+
+                                      // For other progress types
                                       return Math.min(
-                                        progressState.progress || 0,
+                                        ("progress" in progressState &&
+                                          progressState.progress) ||
+                                          0,
                                         100
                                       );
                                     })()}%`,
@@ -353,9 +362,31 @@ export default function () {
                               </div>
 
                               <p class="text-xs text-gray-50 dark:text-gray-500 mt-2">
-                                {"message" in progressState
-                                  ? progressState.message
-                                  : undefined}
+                                {(() => {
+                                  if (
+                                    !progressState ||
+                                    progressState.type === "idle"
+                                  )
+                                    return;
+
+                                  if (
+                                    progressState.stage === "rendering" &&
+                                    progressState.renderProgress !==
+                                      undefined &&
+                                    progressState.totalFrames
+                                  ) {
+                                    return `${Math.min(
+                                      Math.round(
+                                        (progressState.renderProgress /
+                                          progressState.totalFrames) *
+                                          100
+                                      ),
+                                      100
+                                    )}%`;
+                                  }
+
+                                  return progressState.message;
+                                })()}
                               </p>
                             </div>
                           </div>
@@ -366,7 +397,7 @@ export default function () {
                             "background-color": "rgba(0, 0, 0, 0.4)",
                           }}
                           class={cx(
-                            "w-full h-full absolute inset-0 transition-all duration-150 pointer-events-auto",
+                            "w-full h-full absolute inset-0 transition-all duration-150 pointer-events-auto rounded-[7.4px]",
                             isLoading() || showUpgradeTooltip()
                               ? "opacity-100"
                               : "opacity-0 group-hover:opacity-100",
@@ -531,9 +562,14 @@ export default function () {
                         <Show when={metadata()}>
                           {(metadata) => (
                             <div
-                              style={{ color: "white", "font-size": "14px" }}
+                              style={{
+                                color: "white",
+                                "font-size": "14px",
+                                "border-end-end-radius": "7.4px",
+                                "border-end-start-radius": "7.4px",
+                              }}
                               class={cx(
-                                "absolute bottom-0 left-0 right-0 font-medium bg-gray-500 dark:bg-gray-50 bg-opacity-40 backdrop-blur p-2 flex justify-between items-center pointer-events-none transition-all",
+                                "absolute bottom-0 left-0 right-0 font-medium bg-gray-500 dark:bg-gray-50 bg-opacity-40 backdrop-blur p-2 flex justify-between items-center pointer-events-none transition-all max-w-full overflow-hidden",
                                 isLoading() || showUpgradeTooltip()
                                   ? "opacity-0"
                                   : "group-hover:opacity-0"
@@ -816,7 +852,7 @@ function createRecordingMutations(
               );
               setProgressState({
                 ...progressState,
-                message: "Rendering video...",
+                message: "Rendering video",
                 renderProgress: p.current_frame,
               });
             }
@@ -892,12 +928,12 @@ function createRecordingMutations(
           setProgressState({ type: "idle" });
         }, 1500);
 
-        await writeText(recordingMeta.data.sharing.link);
+        await commands.writeClipboardString(recordingMeta.data.sharing.link);
 
         return;
       }
 
-      const isUpgraded = await commands.checkUpgradedAndUpdate();
+      const isUpgraded = await checkIsUpgradedAndUpdate();
       if (!isUpgraded) {
         await commands.showWindow("Upgrade");
         return;

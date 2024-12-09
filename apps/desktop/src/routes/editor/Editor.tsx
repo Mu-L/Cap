@@ -145,7 +145,7 @@ function Inner() {
     <div class="w-screen h-screen flex flex-col">
       <Header />
       <div
-        class="p-5 pt-0 flex-1 w-full overflow-y-hidden flex flex-col gap-4 bg-gray-50 rounded-lg leading-5 animate-in fade-in"
+        class="p-5 pt-0 flex-1 w-full overflow-y-hidden flex flex-col gap-4 bg-gray-50 leading-5 animate-in fade-in"
         data-tauri-drag-region
       >
         <div class="rounded-2xl overflow-hidden  shadow border flex-1 flex flex-col divide-y bg-white">
@@ -296,9 +296,7 @@ function Dialogs() {
                     }
                   >
                     <p class="text-gray-400">
-                      Lorem ipsum dolor sit amet, consectetur adipiscing elit
-                      sed do eiusmod tempor incididunt ut labore et dolore magna
-                      aliqua.
+                      Are you sure you want to delete this preset?
                     </p>
                   </DialogContent>
                 );
@@ -337,8 +335,8 @@ function Dialogs() {
                   };
                 });
 
-                let cropAreaRef: HTMLDivElement;
-                let cropTargetRef: HTMLDivElement;
+                let cropAreaRef!: HTMLDivElement;
+                let cropTargetRef!: HTMLDivElement;
 
                 return (
                   <>
@@ -388,11 +386,7 @@ function Dialogs() {
                     </Dialog.Header>
                     <Dialog.Content>
                       <div class="flex flex-row justify-center">
-                        <div
-                          class="relative bg-blue-200"
-                          // biome-ignore lint/style/noNonNullAssertion: ref
-                          ref={cropAreaRef!}
-                        >
+                        <div class="relative bg-blue-200" ref={cropAreaRef}>
                           <div class="divide-black-transparent-10 overflow-hidden rounded-lg">
                             <img
                               class="shadow pointer-events-none max-h-[70vh]"
@@ -404,8 +398,7 @@ function Dialogs() {
                           </div>
                           <div
                             class="bg-white-transparent-20 absolute cursor-move"
-                            // biome-ignore lint/style/noNonNullAssertion: ref
-                            ref={cropTargetRef!}
+                            ref={cropTargetRef}
                             style={styles()}
                             onMouseDown={(downEvent) => {
                               const original = {

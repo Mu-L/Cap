@@ -528,13 +528,16 @@ export function ConfigSidebar() {
             </ComingSoonTooltip>
           </Field>
           <Field name="Size" icon={<IconCapEnlarge />}>
-            <Slider
-              value={[project.cursor.size]}
-              onChange={(v) => setProject("cursor", "size", v[0])}
-              minValue={20}
-              maxValue={300}
-              step={1}
-            />
+            <ComingSoonTooltip>
+              <Slider
+                disabled
+                value={[project.cursor.size]}
+                onChange={(v) => setProject("cursor", "size", v[0])}
+                minValue={20}
+                maxValue={300}
+                step={1}
+              />
+            </ComingSoonTooltip>
           </Field>
           {window.FLAGS.zoom && (
             <Field name="Animation Style" icon={<IconLucideRabbit />}>
@@ -690,7 +693,7 @@ function RgbInput(props: {
   const [text, setText] = createWritableMemo(() => rgbToHex(props.value));
   let prevHex = rgbToHex(props.value);
 
-  let colorInput: HTMLInputElement;
+  let colorInput!: HTMLInputElement;
 
   return (
     <div class="flex flex-row items-center gap-[0.75rem] relative">
@@ -703,7 +706,7 @@ function RgbInput(props: {
         onClick={() => colorInput.click()}
       />
       <input
-        ref={colorInput!}
+        ref={colorInput}
         type="color"
         class="absolute left-0 bottom-0 w-[3rem] opacity-0"
         onChange={(e) => {
@@ -712,7 +715,7 @@ function RgbInput(props: {
         }}
       />
       <input
-        class="w-[5rem] p-[0.375rem] border text-gray-400 rounded-[0.5rem]"
+        class="w-[5rem] p-[0.375rem] border text-gray-400 rounded-[0.5rem] bg-gray-50"
         value={text()}
         onFocus={() => {
           prevHex = rgbToHex(props.value);

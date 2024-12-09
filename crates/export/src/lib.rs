@@ -1,6 +1,7 @@
 use cap_editor::Segment;
 use image::{ImageBuffer, Rgba};
 use mp4::Mp4Reader;
+use std::path::Path;
 use std::{path::PathBuf, sync::Arc};
 
 use cap_media::feeds::AudioFrameBuffer;
@@ -51,35 +52,29 @@ pub async fn export_video_to_file(
     let (render_segments, audio_segments): (Vec<_>, Vec<_>) = segments
         .iter()
         .enumerate()
-        .map(|(i, segment)| match &meta.content {
-            cap_project::Content::SingleSegment { segment: s } => (
-                RenderSegment {
-                    cursor: segment.cursor.clone(),
-                    decoders: RecordingSegmentDecoders::new(
-                        &meta,
-                        SegmentVideoPaths {
-                            display: s.display.path.as_path(),
-                            camera: s.camera.as_ref().map(|c| c.path.as_path()),
-                        },
-                    ),
+        .map(|(i, segment)| {
+            let segment_paths = match &meta.content {
+                cap_project::Content::SingleSegment { segment: s } => SegmentVideoPaths {
+                    display: s.display.path.as_path(),
+                    camera: s.camera.as_ref().map(|c| c.path.as_path()),
                 },
-                segment.audio.clone(),
-            ),
-            cap_project::Content::MultipleSegments { inner } => {
-                let s = &inner.segments[i];
+                cap_project::Content::MultipleSegments { inner } => {
+                    let s = &inner.segments[i];
 
-                segment.cursor.clone();
-                RecordingSegmentDecoders::new(
-                    &meta,
                     SegmentVideoPaths {
                         display: s.display.path.as_path(),
                         camera: s.camera.as_ref().map(|c| c.path.as_path()),
-                    },
-                );
-                segment.audio.clone();
+                    }
+                }
+            };
 
-                todo!()
-            }
+            (
+                RenderSegment {
+                    cursor: segment.cursor.clone(),
+                    decoders: RecordingSegmentDecoders::new(&meta, segment_paths),
+                },
+                segment.audio.clone(),
+            )
         })
         .unzip();
 
@@ -107,9 +102,13 @@ pub async fn export_video_to_file(
                     channels: audio_data.info.channels as u16,
                 });
 
-                let buffer = AudioFrameBuffer::new(audio_data.clone());
                 Some(AudioRender {
-                    buffer,
+                    buffer: AudioFrameBuffer::new(
+                        audio_segments
+                            .iter()
+                            .map(|s| s.as_ref().as_ref().unwrap().clone())
+                            .collect(),
+                    ),
                     pipe_tx: tx,
                 })
             } else {
@@ -309,4 +308,18 @@ pub async fn export_video_to_file(
     }
 
     Ok(output_path)
+}
+
+/// Validates if a file at the given path is a valid MP4 file
+pub fn is_valid_mp4(path: &Path) -> bool {
+    if let Ok(file) = std::fs::File::open(path) {
+        let file_size = match file.metadata() {
+            Ok(metadata) => metadata.len(),
+            Err(_) => return false,
+        };
+        let reader = std::io::BufReader::new(file);
+        Mp4Reader::read_header(reader, file_size).is_ok()
+    } else {
+        false
+    }
 }

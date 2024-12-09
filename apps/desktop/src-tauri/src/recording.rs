@@ -6,14 +6,13 @@ use crate::{
     create_screenshot,
     export::export_video,
     general_settings::GeneralSettingsStore,
-    notifications, open_editor, open_external_link, platform,
+    list_recordings, notifications, open_editor, open_external_link, platform,
     upload::get_s3_config,
     upload_exported_video, web_api,
     windows::{CapWindowId, ShowCapWindow},
     App, CurrentRecordingChanged, MutableState, NewRecordingAdded, PreCreatedVideo,
     RecordingStarted, RecordingStopped, UploadMode,
 };
-use cap_editor::ProjectRecordings;
 use cap_flags::FLAGS;
 use cap_media::feeds::CameraFeed;
 use cap_media::sources::{AVFrameCapture, CaptureScreen, CaptureWindow, ScreenCaptureSource};
@@ -21,7 +20,8 @@ use cap_project::{
     Content, ProjectConfiguration, TimelineConfiguration, TimelineSegment, ZoomSegment,
 };
 use cap_recording::CompletedRecording;
-use cap_rendering::ZOOM_DURATION;
+use cap_rendering::{ProjectRecordings, ZOOM_DURATION};
+use clipboard_rs::{Clipboard, ClipboardContext};
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
@@ -46,10 +46,6 @@ pub fn list_cameras() -> Vec<String> {
 #[tauri::command]
 #[specta::specta]
 pub async fn start_recording(app: AppHandle, state: MutableState<'_, App>) -> Result<(), String> {
-    sentry::configure_scope(|scope| {
-        scope.set_tag("cmd", "start_recording");
-    });
-
     let mut state = state.write().await;
 
     let id = uuid::Uuid::new_v4().to_string();
@@ -149,10 +145,6 @@ pub async fn resume_recording(state: MutableState<'_, App>) -> Result<(), String
 #[tauri::command]
 #[specta::specta]
 pub async fn stop_recording(app: AppHandle, state: MutableState<'_, App>) -> Result<(), String> {
-    sentry::configure_scope(|scope| {
-        scope.set_tag("cmd", "stop_recording");
-    });
-
     let mut state = state.write().await;
     let Some(current_recording) = state.clear_current_recording() else {
         return Err("Recording not in progress".to_string())?;
@@ -210,50 +202,7 @@ pub async fn stop_recording(app: AppHandle, state: MutableState<'_, App>) -> Res
 
     let recordings = ProjectRecordings::new(&completed_recording.meta);
 
-    let config = {
-        let segments = {
-            let mut segments = vec![];
-            let mut passed_duration = 0.0;
-
-            // multi-segment
-            // for segment in &completed_recording.segments {
-            //     let start = passed_duration;
-            //     passed_duration += segment.end - segment.start;
-            //     segments.push(TimelineSegment {
-            //         recording_segment: None,
-            //         start,
-            //         end: passed_duration.min(recordings.duration()),
-            //         timescale: 1.0,
-            //     });
-            // }
-
-            // single-segment
-            for i in (0..completed_recording.segments.len()).step_by(2) {
-                let start = passed_duration;
-                passed_duration +=
-                    completed_recording.segments[i + 1] - completed_recording.segments[i];
-                segments.push(TimelineSegment {
-                    recording_segment: None,
-                    start,
-                    end: passed_duration.min(recordings.duration()),
-                    timescale: 1.0,
-                });
-            }
-
-            segments
-        };
-
-        ProjectConfiguration {
-            timeline: Some(TimelineConfiguration {
-                segments,
-                zoom_segments: generate_zoom_segments_from_clicks(
-                    &completed_recording,
-                    &recordings,
-                ),
-            }),
-            ..Default::default()
-        }
-    };
+    let config = project_config_from_recording(&completed_recording, &recordings);
 
     config
         .write(&completed_recording.recording_dir)
@@ -269,8 +218,11 @@ pub async fn stop_recording(app: AppHandle, state: MutableState<'_, App>) -> Res
         if auth.is_upgraded() && settings.auto_create_shareable_link {
             if let Some(pre_created_video) = state.pre_created_video.take() {
                 // Copy link to clipboard
-                #[cfg(target_os = "macos")]
-                platform::write_string_to_pasteboard(&pre_created_video.link);
+                let _ = app
+                    .state::<MutableState<'_, ClipboardContext>>()
+                    .write()
+                    .await
+                    .set_text(pre_created_video.link.clone());
 
                 // Send notification for shareable link
                 notifications::send_notification(
@@ -390,4 +342,27 @@ fn generate_zoom_segments_from_clicks(
     }
 
     segments
+}
+
+fn project_config_from_recording(
+    completed_recording: &CompletedRecording,
+    recordings: &ProjectRecordings,
+) -> ProjectConfiguration {
+    ProjectConfiguration {
+        timeline: Some(TimelineConfiguration {
+            segments: recordings
+                .segments
+                .iter()
+                .enumerate()
+                .map(|(i, segment)| TimelineSegment {
+                    recording_segment: Some(i as u32),
+                    start: 0.0,
+                    end: segment.duration(),
+                    timescale: 1.0,
+                })
+                .collect(),
+            zoom_segments: generate_zoom_segments_from_clicks(&completed_recording, &recordings),
+        }),
+        ..Default::default()
+    }
 }

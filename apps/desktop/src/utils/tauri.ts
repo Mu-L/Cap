@@ -68,7 +68,7 @@ async copyScreenshotToClipboard(path: string) : Promise<null> {
 async openFilePath(path: string) : Promise<null> {
     return await TAURI_INVOKE("open_file_path", { path });
 },
-async getVideoMetadata(videoId: string, videoType: VideoType | null) : Promise<[number, number]> {
+async getVideoMetadata(videoId: string, videoType: VideoType | null) : Promise<VideoRecordingMetadata> {
     return await TAURI_INVOKE("get_video_metadata", { videoId, videoType });
 },
 async createEditorInstance(videoId: string) : Promise<SerializedEditorInstance> {
@@ -149,14 +149,17 @@ async sendFeedbackRequest(feedback: string) : Promise<null> {
 async positionTrafficLights(controlsInset: [number, number] | null) : Promise<void> {
     await TAURI_INVOKE("position_traffic_lights", { controlsInset });
 },
+async setTheme(theme: AppTheme) : Promise<void> {
+    await TAURI_INVOKE("set_theme", { theme });
+},
 async globalMessageDialog(message: string) : Promise<void> {
     await TAURI_INVOKE("global_message_dialog", { message });
 },
 async showWindow(window: ShowCapWindow) : Promise<void> {
     await TAURI_INVOKE("show_window", { window });
 },
-async setWindowTheme(dark: boolean) : Promise<void> {
-    await TAURI_INVOKE("set_window_theme", { dark });
+async writeClipboardString(text: string) : Promise<null> {
+    return await TAURI_INVOKE("write_clipboard_string", { text });
 }
 }
 
@@ -209,6 +212,7 @@ uploadProgress: "upload-progress"
 
 /** user-defined types **/
 
+export type AppTheme = "system" | "light" | "dark"
 export type AspectRatio = "wide" | "vertical" | "square" | "classic" | "tall"
 export type Audio = { duration: number; sample_rate: number; channels: number }
 export type AudioConfiguration = { mute: boolean; improve: boolean }
@@ -234,7 +238,7 @@ export type CursorType = "pointer" | "circle"
 export type Display = { path: string }
 export type EditorStateChanged = { playhead_position: number }
 export type Flags = { recordMouse: boolean; split: boolean; pauseResume: boolean; zoom: boolean; customS3: boolean }
-export type GeneralSettingsStore = { uploadIndividualFiles?: boolean; openEditorAfterRecording?: boolean; hideDockIcon?: boolean; autoCreateShareableLink?: boolean; enableNotifications?: boolean; disableAutoOpenLinks?: boolean; hasCompletedStartup?: boolean; darkMode?: boolean }
+export type GeneralSettingsStore = { uploadIndividualFiles?: boolean; openEditorAfterRecording?: boolean; hideDockIcon?: boolean; autoCreateShareableLink?: boolean; enableNotifications?: boolean; disableAutoOpenLinks?: boolean; hasCompletedStartup?: boolean; theme?: AppTheme }
 export type Hotkey = { code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean }
 export type HotkeyAction = "startRecording" | "stopRecording" | "restartRecording" | "takeScreenshot"
 export type HotkeysConfiguration = { show: boolean }
@@ -279,6 +283,7 @@ export type UploadMode = { Initial: { pre_created_video: PreCreatedVideo | null 
 export type UploadProgress = { stage: string; progress: number; message: string }
 export type UploadResult = { Success: string } | "NotAuthenticated" | "PlanCheckFailed" | "UpgradeRequired"
 export type Video = { duration: number; width: number; height: number }
+export type VideoRecordingMetadata = { duration: number; size: number }
 export type VideoType = "screen" | "output"
 export type XY<T> = { x: T; y: T }
 export type ZoomSegment = { start: number; end: number; amount: number }

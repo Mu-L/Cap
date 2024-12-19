@@ -1,6 +1,7 @@
 import { DropdownMenu as KDropdownMenu } from "@kobalte/core/dropdown-menu";
 import { Select as KSelect } from "@kobalte/core/select";
 import { ToggleButton as KToggleButton } from "@kobalte/core/toggle-button";
+import { createEventListener } from "@solid-primitives/event-listener";
 import { createElementBounds } from "@solid-primitives/bounds";
 import { cx } from "cva";
 import { For, Show, Suspense, createEffect, createSignal } from "solid-js";
@@ -20,7 +21,6 @@ import {
   topLeftAnimateClasses,
 } from "./ui";
 import { formatTime } from "./utils";
-import { createEventListener } from "@solid-primitives/event-listener";
 
 export function Player() {
   const {
@@ -38,13 +38,13 @@ export function Player() {
     setSplit,
   } = useEditorContext();
 
-  let canvasRef: HTMLCanvasElement;
+  let canvasRef!: HTMLCanvasElement;
 
   createEffect(() => {
     const frame = latestFrame();
     if (!frame) return;
     const ctx = canvasRef.getContext("2d");
-    ctx?.putImageData(frame, 0, 0);
+    ctx?.putImageData(frame.data, 0, 0);
   });
 
   const [canvasContainerRef, setCanvasContainerRef] =
@@ -172,7 +172,7 @@ export function Player() {
             };
 
             const frameAspect = () =>
-              currentFrame().width / currentFrame().height;
+              currentFrame().width / currentFrame().data.height;
 
             const size = () => {
               if (frameAspect() < containerAspect()) {
@@ -207,11 +207,10 @@ export function Player() {
                   height: `${size().height}px`,
                 }}
                 class="bg-blue-50 absolute rounded"
-                // biome-ignore lint/style/noNonNullAssertion: ref
-                ref={canvasRef!}
+                ref={canvasRef}
                 id="canvas"
                 width={currentFrame().width}
-                height={currentFrame().height}
+                height={currentFrame().data.height}
               />
             );
           }}
@@ -377,7 +376,7 @@ function PresetsDropdown() {
                         </Show>
                         <button
                           type="button"
-                          class="text-gray-400 hover:text-black"
+                          class="text-gray-400 hover:text-[currentColor]"
                           onClick={(e) => {
                             e.stopPropagation();
                             setShowSettings((s) => !s);

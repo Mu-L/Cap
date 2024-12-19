@@ -1,4 +1,6 @@
-use std::{ffi::OsString, fs::OpenOptions, path::PathBuf};
+use futures::FutureExt;
+use std::{ffi::OsString, fs::OpenOptions, io::Write, path::PathBuf};
+// use tokio::{fs::OpenOptions, io::AsyncWriteExt};
 
 #[cfg(windows)]
 pub fn get_last_win32_error_formatted() -> String {
@@ -40,32 +42,44 @@ fn create_named_pipe(path: &std::path::Path) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-pub fn create_channel_named_pipe(
-    mut rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
+pub fn create_channel_named_pipe<T: Send + 'static>(
+    mut rx: tokio::sync::mpsc::Receiver<T>,
     unix_path: PathBuf,
+    get_bytes: impl FnMut(&T) -> Option<&[u8]> + Clone + Send + 'static,
 ) -> OsString {
     #[cfg(unix)]
     {
-        use std::io::Write;
-
         create_named_pipe(&unix_path).unwrap();
 
         let path = unix_path.clone();
-        tokio::spawn(async move {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create(false)
-                .truncate(true)
-                .open(&path)?;
-            println!("video pipe opened");
+        tokio::spawn(
+            async move {
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .create(false)
+                    .truncate(true)
+                    .open(&path)
+                    // .await
+                    .unwrap();
+                println!("video pipe opened");
 
-            while let Some(bytes) = rx.recv().await {
-                file.write_all(&bytes)?;
+                while let Some(bytes) = rx.recv().await {
+                    let mut get_bytes = get_bytes.clone();
+
+                    while let Some(bytes) = get_bytes(&bytes) {
+                        file.write_all(&bytes).unwrap();
+                    }
+                }
+
+                println!("done writing to video pipe");
+                Ok::<(), std::io::Error>(())
             }
-
-            println!("done writing to video pipe");
-            Ok::<(), std::io::Error>(())
-        });
+            .then(|result| async {
+                if let Err(e) = result {
+                    eprintln!("error writing to video pipe: {}", e);
+                }
+            }),
+        );
 
         unix_path.into_os_string()
     }

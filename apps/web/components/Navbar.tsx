@@ -38,19 +38,6 @@ export const Navbar = ({ auth }: { auth: boolean }) => {
 
   return (
     <>
-      <div className="bg-[#FF6154] text-center flex items-center justify-center p-3 relative z-[999999]">
-        <a
-          href="https://cap.link/ph"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-xs sm:text-sm md:text-lg text-white cursor-pointer"
-        >
-          Cap is LIVE on Product Hunt!{" "}
-          <span className="block sm:inline text-xs sm:text-sm md:text-lg font-bold underline text-white">
-            Help us reach #1 Product of the Day →
-          </span>
-        </a>
-      </div>
       <div
         className={`${
           isHomePage || isSeoPage
@@ -63,7 +50,6 @@ export const Navbar = ({ auth }: { auth: boolean }) => {
             <a href="/">
               <Logo
                 white={isHomePage ? true : false}
-                showBeta={true}
                 className="w-20 sm:w-24 h-auto"
               />
             </a>
@@ -127,7 +113,7 @@ export const Navbar = ({ auth }: { auth: boolean }) => {
                   </Link>
                 </NavigationMenuItem>
                 <NavigationMenuItem>
-                  <Link href="/updates" legacyBehavior passHref>
+                  <Link href="/blog" legacyBehavior passHref>
                     <NavigationMenuLink
                       className={classNames(
                         navigationMenuTriggerStyle(),
@@ -136,7 +122,7 @@ export const Navbar = ({ auth }: { auth: boolean }) => {
                           : ""
                       )}
                     >
-                      Updates
+                      Blog
                     </NavigationMenuLink>
                   </Link>
                 </NavigationMenuItem>
@@ -211,7 +197,7 @@ export const Navbar = ({ auth }: { auth: boolean }) => {
         <div className="fixed top-0 left-0 w-full h-full px-5 bg-white z-[100000] overflow-auto">
           <div className="bg-gradient-to-b from-white to-[rgba(255,255,255,0.3)] pt-5 pb-12 sticky top-0 flex items-center justify-between">
             <Link href="/">
-              <Logo showBeta={true} className="w-20 sm:w-24 h-auto" />
+              <Logo className="w-20 sm:w-24 h-auto" />
             </Link>
             <button onClick={() => setShowMobileMenu(!showMobileMenu)}>
               <X className="w-[28px] h-[28px]" />

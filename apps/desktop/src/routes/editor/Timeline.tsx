@@ -1,35 +1,29 @@
 import "~/styles/timeline.css";
 import { createElementBounds } from "@solid-primitives/bounds";
 import {
-  Accessor,
   ComponentProps,
   For,
   Show,
-  createContext,
+  batch,
   createRoot,
   createSignal,
   onMount,
-  useContext,
 } from "solid-js";
 import { createEventListenerMap } from "@solid-primitives/event-listener";
 import { cx } from "cva";
-import { createStore, produce } from "solid-js/store";
+import { produce } from "solid-js/store";
 import { mergeRefs } from "@solid-primitives/refs";
-import { createContextProvider } from "@solid-primitives/context";
 import { createMemo } from "solid-js";
 
 import { commands, TimelineSegment } from "~/utils/tauri";
-import { useEditorContext } from "./context";
+import {
+  TimelineContextProvider,
+  TrackContextProvider,
+  useEditorContext,
+  useTimelineContext,
+  useTrackContext,
+} from "./context";
 import { formatTime } from "./utils";
-
-const [TimelineContextProvider, useTimelineContext] = createContextProvider(
-  (props: { duration: number }) => {
-    return {
-      duration: () => props.duration,
-    };
-  },
-  null!
-);
 
 export function Timeline() {
   const {
@@ -182,7 +176,6 @@ export function Timeline() {
                     "timeline",
                     "segments",
                     produce((segments) => {
-                      console.log({ splitTime });
                       segments.splice(i() + 1, 0, {
                         start: splitTime,
                         end: segment.end,
@@ -199,7 +192,12 @@ export function Timeline() {
                   onMouseDown={(downEvent) => {
                     const start = segment.start;
 
-                    const maxDuration =
+                    const maxSegmentDuration =
+                      editorInstance.recordings.segments[
+                        segment.recordingSegment ?? 0
+                      ].display.duration;
+
+                    const availableTimelineDuration =
                       editorInstance.recordingDuration -
                       segments().reduce(
                         (acc, segment, segmentI) =>
@@ -209,6 +207,11 @@ export function Timeline() {
                               (segment.end - segment.start) / segment.timescale,
                         0
                       );
+
+                    const maxDuration = Math.min(
+                      maxSegmentDuration,
+                      availableTimelineDuration
+                    );
 
                     function update(event: MouseEvent) {
                       const { width } = timelineBounds;
@@ -250,7 +253,7 @@ export function Timeline() {
                   <span class="text-black-transparent-60 text-[0.625rem] mt-auto">
                     {formatTime(segment.start)}
                   </span>
-                  <Show when={segments().length > 1}>
+                  {/* <Show when={segments().length > 1}>
                     <button
                       onClick={() => {
                         setProject(
@@ -265,7 +268,7 @@ export function Timeline() {
                     >
                       <IconCapTrash class="size-4 text-gray-400 group-hover/button:text-gray-500 transition-colors" />
                     </button>
-                  </Show>
+                  </Show> */}
                   <span class="text-black-transparent-60 text-[0.625rem] mt-auto">
                     {formatTime(segment.end)}
                   </span>
@@ -275,7 +278,12 @@ export function Timeline() {
                   onMouseDown={(downEvent) => {
                     const end = segment.end;
 
-                    const maxDuration =
+                    const maxSegmentDuration =
+                      editorInstance.recordings.segments[
+                        segment.recordingSegment ?? 0
+                      ].display.duration;
+
+                    const availableTimelineDuration =
                       editorInstance.recordingDuration -
                       segments().reduce(
                         (acc, segment, segmentI) =>
@@ -285,6 +293,11 @@ export function Timeline() {
                               (segment.end - segment.start) / segment.timescale,
                         0
                       );
+
+                    const maxDuration = Math.min(
+                      maxSegmentDuration,
+                      availableTimelineDuration
+                    );
 
                     function update(event: MouseEvent) {
                       const { width } = timelineBounds;
@@ -300,7 +313,11 @@ export function Timeline() {
                         i(),
                         "end",
                         Math.max(
-                          Math.min(newEnd, segment.start + maxDuration),
+                          Math.min(
+                            newEnd,
+                            maxSegmentDuration,
+                            availableTimelineDuration
+                          ),
                           segment.start + 1
                         )
                       );
@@ -384,18 +401,27 @@ export function Timeline() {
                     if (time === undefined) return;
 
                     e.stopPropagation();
-                    setProject(
-                      "timeline",
-                      "zoomSegments",
-                      produce((zoomSegments) => {
-                        zoomSegments ??= [];
-                        zoomSegments.push({
-                          start: time,
-                          end: time + 1,
-                          amount: 1.5,
-                        });
-                      })
-                    );
+                    batch(() => {
+                      setProject("timeline", "zoomSegments", (v) => v ?? []);
+                      setProject(
+                        "timeline",
+                        "zoomSegments",
+                        produce((zoomSegments) => {
+                          zoomSegments ??= [];
+                          zoomSegments.push({
+                            start: time,
+                            end: time + 1,
+                            amount: 1.5,
+                            mode: {
+                              manual: {
+                                x: 0.5,
+                                y: 0.5,
+                              },
+                            },
+                          });
+                        })
+                      );
+                    });
                   }}
                 >
                   <Show
@@ -428,6 +454,9 @@ export function Timeline() {
                         return `${amount.toFixed(1)}x`;
                       };
 
+                      const zoomSegments = () =>
+                        project.timeline!.zoomSegments!;
+
                       return (
                         <SegmentRoot
                           class="border-red-300 group"
@@ -445,17 +474,21 @@ export function Timeline() {
                             onMouseDown={(downEvent) => {
                               const start = segment.start;
 
-                              const maxDuration =
-                                editorInstance.recordingDuration -
-                                segments().reduce(
-                                  (acc, segment, segmentI) =>
-                                    segmentI === i()
-                                      ? acc
-                                      : acc +
-                                        (segment.end - segment.start) /
-                                          segment.timescale,
-                                  0
-                                );
+                              let minValue = 0;
+
+                              for (
+                                let i = zoomSegments().length - 1;
+                                i >= 0;
+                                i--
+                              ) {
+                                const segment = zoomSegments()[i]!;
+                                if (segment.end <= start) {
+                                  minValue = segment.end;
+                                  break;
+                                }
+                              }
+
+                              let maxValue = segment.end - 1;
 
                               function update(event: MouseEvent) {
                                 const { width } = timelineBounds;
@@ -472,12 +505,8 @@ export function Timeline() {
                                   i(),
                                   "start",
                                   Math.min(
-                                    Math.max(
-                                      newStart,
-                                      // Math.max(newStart, 0),
-                                      segment.end - maxDuration
-                                    ),
-                                    segment.end - 1
+                                    maxValue,
+                                    Math.max(minValue, newStart)
                                   )
                                 );
                               }
@@ -523,6 +552,18 @@ export function Timeline() {
                             onMouseDown={(downEvent) => {
                               const end = segment.end;
 
+                              const minValue = segment.start + 1;
+
+                              let maxValue = duration();
+
+                              for (let i = 0; i > zoomSegments().length; i++) {
+                                const segment = zoomSegments()[i]!;
+                                if (segment.start > end) {
+                                  maxValue = segment.end;
+                                  break;
+                                }
+                              }
+
                               const maxDuration =
                                 editorInstance.recordingDuration -
                                 segments().reduce(
@@ -549,13 +590,7 @@ export function Timeline() {
                                   "zoomSegments",
                                   i(),
                                   "end",
-                                  Math.max(
-                                    Math.min(
-                                      newEnd,
-                                      segment.start + maxDuration
-                                    ),
-                                    segment.start + 1
-                                  )
+                                  Math.min(maxValue, Math.max(minValue, newEnd))
                                 );
                               }
 
@@ -591,26 +626,6 @@ export function Timeline() {
     </TimelineContextProvider>
   );
 }
-
-const [TrackContextProvider, useTrackContext] = createContextProvider(
-  (props: {
-    ref: Accessor<Element | undefined>;
-    isFreeForm: Accessor<boolean>;
-  }) => {
-    const [trackState, setTrackState] = createStore({
-      draggingHandle: false,
-    });
-    const bounds = createElementBounds(() => props.ref());
-
-    return {
-      trackBounds: bounds,
-      isFreeForm: () => props.isFreeForm(),
-      trackState,
-      setTrackState,
-    };
-  },
-  null!
-);
 
 function TrackRoot(props: ComponentProps<"div"> & { isFreeForm: boolean }) {
   const [ref, setRef] = createSignal<HTMLDivElement>();
@@ -658,9 +673,10 @@ function SegmentRoot(
     <div
       {...props}
       class={cx(
-        "absolute border rounded-[calc(0.75rem+1px)] h-[3rem] w-full",
+        "border rounded-[calc(0.75rem+1px)] h-[3rem] w-full",
         props.class,
-        isSelected() && "wobble-wrapper"
+        isSelected() && "wobble-wrapper",
+        isFreeForm() && "absolute"
       )}
       style={{
         "--segment-x": `${translateX()}px`,

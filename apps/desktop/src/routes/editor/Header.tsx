@@ -4,12 +4,12 @@ import {
   Match,
   Show,
   Switch,
+  createEffect,
   createResource,
   onCleanup,
   onMount,
 } from "solid-js";
 import { type as ostype } from "@tauri-apps/plugin-os";
-import { createStore, reconcile } from "solid-js/store";
 import { Tooltip } from "@kobalte/core";
 
 import { type RenderProgress, commands } from "~/utils/tauri";
@@ -17,21 +17,46 @@ import { type RenderProgress, commands } from "~/utils/tauri";
 import { useEditorContext } from "./context";
 import { Dialog, DialogContent } from "./ui";
 import {
-  ProgressState,
+  type ProgressState,
   progressState,
   setProgressState,
 } from "~/store/progress";
+
 import { events } from "~/utils/tauri";
+import Titlebar from "~/components/titlebar/Titlebar";
+import { initializeTitlebar, setTitlebar } from "~/utils/titlebar-state";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow, ProgressBarStatus } from "@tauri-apps/api/window";
 
 export function Header() {
-  let unlistenTitlebar: UnlistenFn | undefined;
+  const currentWindow = getCurrentWindow();
 
+  let unlistenTitlebar: UnlistenFn | undefined;
   onMount(async () => {
     unlistenTitlebar = await initializeTitlebar();
   });
+  onCleanup(() => unlistenTitlebar?.());
 
-  onCleanup(() => {
-    unlistenTitlebar?.();
+  createEffect(() => {
+    const state = progressState;
+    if (state === undefined || state.type === "idle") {
+      currentWindow.setProgressBar({ status: ProgressBarStatus.None });
+      return;
+    }
+
+    let percentage: number | undefined;
+    if (state.type === "saving") {
+      percentage =
+        state.stage === "rendering"
+          ? Math.min(
+              ((state.renderProgress || 0) / (state.totalFrames || 1)) * 100,
+              100
+            )
+          : Math.min(state.progress || 0, 100);
+    }
+
+    if (percentage)
+      currentWindow.setProgressBar({ progress: Math.round(percentage) });
   });
 
   setTitlebar("border", false);
@@ -102,7 +127,13 @@ export function Header() {
                         />
                       </div>
 
-                      <p class="text-xs mt-3 relative z-10">{state.message}</p>
+                      <p class="text-xs mt-3 relative z-10">
+                        {state.stage === "rendering" &&
+                        state.renderProgress &&
+                        state.totalFrames
+                          ? `${state.message} (${state.renderProgress}/${state.totalFrames} frames)`
+                          : state.message}
+                      </p>
                     </div>
                   );
                 }}
@@ -139,7 +170,13 @@ export function Header() {
                         />
                       </div>
 
-                      <p class="text-xs mt-3 relative z-10">{state.message}</p>
+                      <p class="text-xs mt-3 relative z-10">
+                        {state.stage === "rendering" &&
+                        state.renderProgress &&
+                        state.totalFrames
+                          ? `${state.message} (${state.renderProgress}/${state.totalFrames} frames)`
+                          : state.message}
+                      </p>
                     </div>
                   );
                 }}
@@ -197,15 +234,12 @@ import { Channel } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { DEFAULT_PROJECT_CONFIG } from "./projectConfig";
 import { createMutation } from "@tanstack/solid-query";
-import Titlebar from "~/components/titlebar/Titlebar";
-import { initializeTitlebar, setTitlebar } from "~/utils/titlebar-state";
-import { UnlistenFn } from "@tauri-apps/api/event";
 
 function ExportButton() {
   const { videoId, project, prettyName } = useEditorContext();
 
   const exportVideo = createMutation(() => ({
-    mutationFn: async () => {
+    mutationFn: async (useCustomMuxer: boolean) => {
       const path = await save({
         filters: [{ name: "mp4 filter", extensions: ["mp4"] }],
         defaultPath: `~/Desktop/${prettyName()}.mp4`,
@@ -225,9 +259,13 @@ function ExportButton() {
       const progress = new Channel<RenderProgress>();
       progress.onmessage = (p) => {
         if (p.type === "FrameRendered" && progressState.type === "saving") {
+          const percentComplete = Math.round(
+            (p.current_frame / (progressState.totalFrames || 1)) * 100
+          );
           setProgressState({
             ...progressState,
             renderProgress: p.current_frame,
+            message: `Rendering video - ${percentComplete}%`,
           });
         }
         if (
@@ -237,6 +275,7 @@ function ExportButton() {
           setProgressState({
             ...progressState,
             totalFrames: p.total_frames,
+            message: "Starting render...",
           });
         }
       };
@@ -245,7 +284,8 @@ function ExportButton() {
         videoId,
         project,
         progress,
-        true
+        true,
+        useCustomMuxer
       );
       await commands.copyFileToPath(videoPath, path);
 
@@ -263,7 +303,13 @@ function ExportButton() {
   }));
 
   return (
-    <Button variant="primary" size="md" onClick={() => exportVideo.mutate()}>
+    <Button
+      variant="primary"
+      size="md"
+      onClick={(e) =>
+        exportVideo.mutate((e.ctrlKey || e.metaKey) && e.shiftKey)
+      }
+    >
       Export
     </Button>
   );
@@ -276,7 +322,7 @@ function ShareButton() {
   );
 
   const uploadVideo = createMutation(() => ({
-    mutationFn: async () => {
+    mutationFn: async (useCustomMuxer: boolean) => {
       console.log("Starting upload process...");
       if (!recordingMeta()) {
         console.error("No recording metadata available");
@@ -364,7 +410,13 @@ function ShareButton() {
           }
         };
 
-        await commands.exportVideo(videoId, projectConfig, progress, true);
+        await commands.exportVideo(
+          videoId,
+          projectConfig,
+          progress,
+          true,
+          false
+        );
 
         // Now proceed with upload
         const result = recordingMeta()?.sharing
@@ -432,7 +484,9 @@ function ShareButton() {
       fallback={
         <Button
           disabled={uploadVideo.isPending}
-          onClick={() => uploadVideo.mutate()}
+          onClick={(e) =>
+            uploadVideo.mutate((e.ctrlKey || e.metaKey) && e.shiftKey)
+          }
           variant="primary"
           class="flex items-center space-x-1"
         >
@@ -456,7 +510,9 @@ function ShareButton() {
               <Tooltip.Trigger>
                 <Button
                   disabled={uploadVideo.isPending}
-                  onClick={() => uploadVideo.mutate()}
+                  onClick={(e) =>
+                    uploadVideo.mutate((e.ctrlKey || e.metaKey) && e.shiftKey)
+                  }
                   variant="secondary"
                   class="flex items-center space-x-1"
                 >

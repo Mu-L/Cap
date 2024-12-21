@@ -26,7 +26,7 @@ export const Footer = () => {
       >
         <div className="sm:grid space-y-8 sm:space-y-0 grid-cols-1 lg:grid-cols-12 gap-8 sm:items-start sm:justify-between z-10 relative">
           <div className="space-y-2 sm:space-y-4 col-span-12 lg:col-span-6">
-            <Logo showBeta={true} className="w-[104px] h-auto" />
+            <Logo className="w-[104px] h-auto" />
             <div className="w-full">
               <p className="text-gray-500 max-w-md">
                 Cap is the open source alternative to Loom. Lightweight,
@@ -49,7 +49,7 @@ export const Footer = () => {
             <h3 className="text-lg font-semibold">Product</h3>
             <ul className="space-y-2">
               <li>
-                <a href="/updates">Updates</a>
+                <a href="/blog">Blog</a>
               </li>
               <li>
                 <a href="/docs">Docs</a>
@@ -108,7 +108,7 @@ export const Footer = () => {
               </li>
               <li>
                 <a
-                  href="https://linkedin.com/company/capsoftware"
+                  href="https://www.linkedin.com/company/caprecorder/"
                   target="_blank"
                 >
                   LinkedIn

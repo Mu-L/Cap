@@ -7,13 +7,20 @@ import {
   FormControl,
   FormField,
   Input,
+  CardDescription,
+  Label,
 } from "@cap/ui";
 import { useForm } from "react-hook-form";
 import { createOrganization } from "./server";
+import { useState } from "react";
+import { toast } from "sonner";
+import { FileInput } from "@/components/FileInput";
 
 export interface NewOrganizationProps {
   onOrganizationCreated: () => void;
-  formRef?: React.Dispatch<React.SetStateAction<HTMLFormElement | null>>;
+  formRef?: React.RefObject<HTMLFormElement>;
+  setCreateLoading?: React.Dispatch<React.SetStateAction<boolean>>;
+  onNameChange?: (name: string) => void;
 }
 
 export const NewOrganization: React.FC<NewOrganizationProps> = (props) => {
@@ -28,17 +35,36 @@ export const NewOrganization: React.FC<NewOrganizationProps> = (props) => {
     },
   });
 
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
   return (
     <Form {...form}>
       <form
         className="space-y-4"
-        ref={props.formRef ? (form) => props.formRef?.(form) : undefined}
+        ref={props.formRef}
         onSubmit={form.handleSubmit(async (values) => {
           try {
-            await createOrganization(values);
+            setIsUploading(true);
+            props.setCreateLoading?.(true);
+            
+            // Create FormData to send both the organization name and icon file
+            const formData = new FormData();
+            formData.append('name', values.name);
+            
+            // Add the icon file if one was selected
+            if (selectedFile) {
+              formData.append('icon', selectedFile);
+            }
+            
+            await createOrganization(formData);
             props.onOrganizationCreated();
           } catch (error) {
             console.error("Error creating organization:", error);
+            toast.error("Failed to create organization");
+          } finally {
+            setIsUploading(false);
+            props.setCreateLoading?.(false);
           }
         })}
       >
@@ -48,10 +74,34 @@ export const NewOrganization: React.FC<NewOrganizationProps> = (props) => {
             name="name"
             render={({ field }) => (
               <FormControl>
-                <Input required placeholder="Your organization name" {...field} />
+                <Input 
+                  placeholder="Your organization name" 
+                  {...field} 
+                  onChange={(e) => {
+                    field.onChange(e);
+                    props.onNameChange?.(e.target.value);
+                  }}
+                />
               </FormControl>
             )}
           />
+
+          <div className="space-y-1">
+            <Label htmlFor="icon">Organization Icon (Optional)</Label>
+            <CardDescription className="w-full max-w-[400px]">
+              Upload a custom logo or icon for your organization.
+            </CardDescription>
+          </div>
+
+          <div className="relative mt-2">
+            <FileInput
+              id="icon"
+              name="icon"
+              onChange={setSelectedFile}
+              disabled={isUploading}
+              isLoading={isUploading}
+            />
+          </div>
         </div>
       </form>
     </Form>

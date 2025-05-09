@@ -9,12 +9,13 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { AnimatePresence, motion } from "framer-motion";
+import Cookies from "js-cookie";
 import { LucideArrowUpRight, LucideMail } from "lucide-react";
 import { signIn } from "next-auth/react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { toast } from "react-hot-toast";
+import { toast } from "sonner";
 import { trackEvent } from "../utils/analytics";
 
 export function LoginForm() {
@@ -27,7 +28,7 @@ export function LoginForm() {
   const [showOrgInput, setShowOrgInput] = useState(false);
   const [organizationId, setOrganizationId] = useState("");
   const [organizationName, setOrganizationName] = useState<string | null>(null);
-  const theme = localStorage.getItem("theme") || "light";
+  const theme = Cookies.get("theme") || "light";
 
   useEffect(() => {
     theme === "dark"
@@ -212,7 +213,7 @@ export function LoginForm() {
                             toast.error("Error sending email - try again?");
                           }
                         })
-                        .catch((err) => {
+                        .catch(() => {
                           setEmailSent(false);
                           setLoading(false);
                           toast.error("Error sending email - try again?");

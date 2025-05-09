@@ -3,14 +3,14 @@ import { Button, Dialog, DialogContent, LogoBadge } from "@cap/ui";
 import { motion } from "framer-motion";
 import { signIn } from "next-auth/react";
 import { useState } from "react";
-import { toast } from "react-hot-toast";
+import { toast } from "sonner";
 
 interface AuthOverlayProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const MotionDialogContent = motion(DialogContent);
+const MotionDialogContent = motion.create(DialogContent);
 
 export const AuthOverlay: React.FC<AuthOverlayProps> = ({
   isOpen,
@@ -119,7 +119,7 @@ export const AuthOverlay: React.FC<AuthOverlayProps> = ({
                       toast.error("Error sending email - try again?");
                     }
                   })
-                  .catch((err) => {
+                  .catch(() => {
                     setEmailSent(false);
                     setLoading(false);
                     toast.error("Error sending email - try again?");

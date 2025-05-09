@@ -37,14 +37,19 @@ import {
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import clsx from "clsx";
 import { motion } from "framer-motion";
-
-import { useState } from "react";
+import Image from "next/image";
+  
+import { useRef, useState } from "react";
 import { updateActiveOrganization } from "./server";
 
-export const AdminNavItems = ({ collapsed }: { collapsed?: boolean }) => {
+interface Props {
+  toggleMobileNav?: () => void;
+}
+
+export const AdminNavItems = ({ toggleMobileNav }: Props) => {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const { user } =
+  const { user, sidebarCollapsed } =
     useSharedContext();
 
   const manageNavigation = [
@@ -90,13 +95,15 @@ export const AdminNavItems = ({ collapsed }: { collapsed?: boolean }) => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const { organizationData: orgData, activeOrganization: activeOrg, isSubscribed: userIsSubscribed } =
     useSharedContext();
-  const [formRef, setFormRef] = useState<HTMLFormElement | null>(null);
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [organizationName, setOrganizationName] = useState("");
 
   return (
     <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
       <Popover open={open} onOpenChange={setOpen}>
         <Tooltip
-          disable={open || collapsed === false}
+          disable={open || sidebarCollapsed === false}
           position="right"
           content={
             activeOrg?.organization.name ?? "No organization found"
@@ -115,28 +122,39 @@ export const AdminNavItems = ({ collapsed }: { collapsed?: boolean }) => {
               >
                 <div className="flex justify-between items-center w-full text-left">
                   <div className="flex items-center">
-                    <Avatar
-                      letterClass="text-gray-1 text-xs"
-                      className="relative flex-shrink-0 size-5"
-                      name={
-                        activeOrg?.organization.name ??
-                        "No organization found"
-                      }
-                    />
+                    {activeOrg?.organization.iconUrl ? (
+                      <div className="overflow-hidden relative flex-shrink-0 rounded-full size-5">
+                        <Image
+                          src={activeOrg.organization.iconUrl}
+                          alt={activeOrg.organization.name || "Organization icon"}
+                          fill
+                          className="object-cover"
+                        />
+                      </div>
+                    ) : (
+                      <Avatar
+                        letterClass="text-gray-1 text-xs"
+                        className="relative flex-shrink-0 size-5"
+                        name={
+                          activeOrg?.organization.name ??
+                          "No organization found"
+                        }
+                      />
+                    )}
                     <p className="ml-2.5 text-sm text-gray-12 font-medium truncate">
                       {activeOrg?.organization.name ??
                         "No organization found"}
                     </p>
                   </div>
-                  {!collapsed && (
+                  {!sidebarCollapsed && (
                     <ChevronDown className="w-5 h-auto text-gray-8" />
                   )}
                 </div>
               </div>
               <PopoverContent
                 className={clsx(
-                  "p-0 w-[calc(100%-12px)] z-[60]",
-                  collapsed ? "ml-3" : "mx-auto"
+                  "p-0 w-full min-w-[287px] md:min-w-fit md:w-[calc(100%-12px)] z-[120]",
+                  sidebarCollapsed ? "ml-3" : "mx-auto"
                 )}
               >
                 <Command>
@@ -150,9 +168,8 @@ export const AdminNavItems = ({ collapsed }: { collapsed?: boolean }) => {
                       return (
                         <CommandItem
                           className={clsx(
-                            "transition-colors duration-300",
-                            isSelected ? "pointer-events-none text-gray-12"
-                            : "!text-gray-10 hover:!text-gray-12"
+                            "rounded-lg transition-colors duration-300 group",
+                            isSelected ? "pointer-events-none":"text-gray-10 hover:text-gray-12 hover:bg-gray-6"
                           )}
                           key={organization.organization.name + "-organization"}
                           onSelect={async () => {
@@ -162,21 +179,39 @@ export const AdminNavItems = ({ collapsed }: { collapsed?: boolean }) => {
                             setOpen(false);
                           }}
                         >
-                          {organization.organization.name}
+                          <div className="flex gap-2 items-center w-full">
+                            {organization.organization.iconUrl ? (
+                              <div className="overflow-hidden relative flex-shrink-0 rounded-full size-5">
+                                <Image
+                                  src={organization.organization.iconUrl}
+                                  alt={organization.organization.name || "Organization icon"}
+                                  fill
+                                  className="object-cover"
+                                />
+                              </div>
+                            ) : (
+                              <Avatar
+                                letterClass="text-gray-1 text-xs"
+                                className="relative flex-shrink-0 size-5"
+                                name={organization.organization.name}
+                              />
+                            )}
+                            <p className={clsx("flex-1 text-sm transition-colors duration-200 group-hover:text-gray-12", isSelected ? "text-gray-12":"text-gray-10")}>{organization.organization.name}</p>
+                          </div>
                           {isSelected && (
                             <Check
                               size={18}
-                              className={"ml-auto"}
+                              className={"ml-auto text-gray-12"}
                             />
                           )}
                         </CommandItem>
                       );
                     })}
-                    <DialogTrigger className="mt-3 w-full">
+                    <DialogTrigger asChild>
                       <Button
                         variant="dark"
                         size="sm"
-                        className="flex gap-1 items-center w-full"
+                        className="flex gap-1 items-center mt-3 w-full"
                       >
                         <Plus className="w-4 h-auto" />
                         Add new organization
@@ -194,19 +229,19 @@ export const AdminNavItems = ({ collapsed }: { collapsed?: boolean }) => {
         aria-label="Sidebar"
       >
         <div
-          className={clsx("mt-8 space-y-2.5", collapsed ? "items-center" : "")}
+          className={clsx("mt-8 space-y-2.5", sidebarCollapsed ? "items-center" : "")}
         >
           {manageNavigation.map((item) => (
             <div key={item.name} className="flex relative justify-center">
               {pathname.includes(item.href) ? (
                 <motion.div
                   initial={{
-                    width: collapsed ? 40 : "100%",
-                    height: collapsed ? 40 : "100%",
+                    width: sidebarCollapsed ? 40 : "100%",
+                    height: sidebarCollapsed ? 40 : "100%",
                   }}
                   animate={{
-                    width: collapsed ? 40 : "100%",
-                    height: collapsed ? 40 : "100%",
+                    width: sidebarCollapsed ? 40 : "100%",
+                    height: sidebarCollapsed ? 40 : "100%",
                   }}
                   transition={{
                     type: "spring",
@@ -223,11 +258,12 @@ export const AdminNavItems = ({ collapsed }: { collapsed?: boolean }) => {
               ) : null}
               <Tooltip
                 content={item.name}
-                disable={collapsed === false}
+                disable={sidebarCollapsed === false}
                 position="right"
               >
                 <Link
                   passHref
+                  onClick={() => toggleMobileNav?.()}
                   prefetch={false}
                   href={item.href}
                   className={classNames(
@@ -239,7 +275,7 @@ export const AdminNavItems = ({ collapsed }: { collapsed?: boolean }) => {
                     icon={item.icon as IconDefinition}
                     className={classNames(
                       "flex-shrink-0 w-5 h-5 transition-colors duration-200 stroke-[1.5px]",
-                      collapsed ? "text-gray-12" : "text-gray-10"
+                      sidebarCollapsed ? "text-gray-12" : "text-gray-10"
                     )}
                     aria-hidden="true"
                   />
@@ -253,7 +289,9 @@ export const AdminNavItems = ({ collapsed }: { collapsed?: boolean }) => {
         </div>
         <div className="pb-0 w-full lg:pb-5">
           <UsageButton
-            collapsed={collapsed ?? false}
+            toggleMobileNav={() => 
+              toggleMobileNav?.()
+            }
             subscribed={userIsSubscribed}
           />
           <p className="mt-4 text-xs text-center truncate text-gray-10">
@@ -267,8 +305,10 @@ export const AdminNavItems = ({ collapsed }: { collapsed?: boolean }) => {
         </DialogHeader>
         <div className="p-5">
           <NewOrganization 
+            setCreateLoading={setCreateLoading}
             onOrganizationCreated={() => setDialogOpen(false)}
-            formRef={setFormRef}
+            formRef={formRef}
+            onNameChange={setOrganizationName}
           />
         </div>
         <DialogFooter>
@@ -282,10 +322,12 @@ export const AdminNavItems = ({ collapsed }: { collapsed?: boolean }) => {
           <Button 
             variant="dark" 
             size="sm" 
-            onClick={() => formRef?.requestSubmit()}
+            disabled={createLoading || !organizationName.trim().length}
+            spinner={createLoading}
+            onClick={() => formRef.current?.requestSubmit()}
             type="submit"
           >
-            Create
+            {createLoading ? "Creating..." : "Create"}
           </Button>
         </DialogFooter>
       </DialogContent>
